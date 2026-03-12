@@ -39,7 +39,7 @@ async function loadConfig() {
       setStatus(`Hazır. OpenAI aktif (${data.model}).`);
     } else {
       addMessage('OpenAI anahtarı bulunamadı, yerel modda çalışıyorum.', 'bot');
-      addMessage('İstersen proje köküne .env dosyası açıp OPENAI_API_KEY ekleyebilirsin.', 'bot');
+      addMessage('Proje köküne .env dosyası açıp OPENAI_API_KEY ekleyebilirsin.', 'bot');
       setStatus('Hazır. OpenAI anahtarı yok, yerel mod aktif.');
     }
   } catch {
@@ -64,6 +64,9 @@ async function sendMessage(message) {
 
     const data = await res.json();
     addMessage(data.reply, 'bot');
+    if (data.error) {
+      addMessage(`Teknik detay: ${data.error}`, 'bot');
+    }
     speak(data.reply);
     setStatus(`Hazır. Kaynak: ${data.source}`);
   } catch (error) {
@@ -85,6 +88,23 @@ speakToggleBtn.addEventListener('click', () => {
   speakToggleBtn.textContent = `🔊 Sesli Yanıt: ${speakEnabled ? 'Açık' : 'Kapalı'}`;
 });
 
+async function requestMicAccess() {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    addMessage('Bu tarayıcı mikrofon erişimini desteklemiyor.', 'bot');
+    return false;
+  }
+
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    stream.getTracks().forEach((track) => track.stop());
+    return true;
+  } catch (error) {
+    setStatus('Mikrofon izni verilmedi. Tarayıcı ayarlarından mikrofona izin ver.');
+    addMessage('Mikrofon izni kapalı görünüyor. Site izinlerinden mikrofonu aç.', 'bot');
+    return false;
+  }
+}
+
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
 if (SpeechRecognition) {
@@ -93,7 +113,14 @@ if (SpeechRecognition) {
   recognition.interimResults = false;
   recognition.maxAlternatives = 1;
 
-  micBtn.addEventListener('click', () => {
+  micBtn.addEventListener('click', async () => {
+    setStatus('Mikrofon kontrol ediliyor...');
+
+    const allowed = await requestMicAccess();
+    if (!allowed) {
+      return;
+    }
+
     setStatus('Dinleniyor...');
     recognition.start();
   });
@@ -108,9 +135,10 @@ if (SpeechRecognition) {
   recognition.addEventListener('error', (event) => {
     const tips = {
       'not-allowed': 'Mikrofon izni reddedildi. Tarayıcıdan mikrofon iznini açmalısın.',
-      'service-not-allowed': 'Tarayıcı ses servisine izin vermiyor. Chrome kullanmayı dene.',
+      'service-not-allowed': 'Tarayıcı ses servisine izin vermiyor. Chrome/Edge kullanmayı dene.',
       'no-speech': 'Ses algılanmadı, tekrar dene.',
       'audio-capture': 'Mikrofon cihazı bulunamadı.',
+      'network': 'Tarayıcının ses tanıma servisine erişiminde ağ hatası oldu.',
     };
     setStatus(tips[event.error] || `Mikrofon hatası: ${event.error}`);
   });
@@ -128,7 +156,7 @@ if (SpeechRecognition) {
 
 addMessage('Merhaba! Ben Jarvis TR. Türkçe yazabilir veya konuşabilirsin.', 'bot');
 if (location.protocol !== 'https:' && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
-  addMessage('Not: Mikrofon çoğu tarayıcıda HTTPS ister. Uzaktan bağlanırken HTTPS gerekebilir.', 'bot');
+  addMessage('Not: Mikrofon çoğu tarayıcıda HTTPS ister. Telefondan bağlanıyorsan HTTPS gerekebilir.', 'bot');
 }
 
 loadConfig();

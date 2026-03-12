@@ -36,6 +36,7 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     reply: str
     source: str
+    error: str | None = None
 
 
 class ConfigResponse(BaseModel):
@@ -82,8 +83,10 @@ def chat(body: ChatRequest) -> ChatResponse:
     if not api_key:
         return ChatResponse(reply=local_fallback_reply(body.message), source="local-fallback")
 
+    client = OpenAI(api_key=api_key)
+
+    # Önce Responses API dene, model/hesap yetkisine göre başarısız olursa Chat Completions'a düş.
     try:
-        client = OpenAI(api_key=api_key)
         response = client.responses.create(
             model=model,
             input=[
@@ -92,9 +95,22 @@ def chat(body: ChatRequest) -> ChatResponse:
             ],
         )
         text_reply = response.output_text.strip() or "Şu an yanıt üretemedim, tekrar dener misin?"
-        return ChatResponse(reply=text_reply, source=f"openai:{model}")
-    except Exception:
-        return ChatResponse(
-            reply="OpenAI bağlantısında sorun oldu. Şimdilik yerel modda devam edelim.",
-            source="openai-error",
-        )
+        return ChatResponse(reply=text_reply, source=f"openai.responses:{model}")
+    except Exception as responses_error:
+        try:
+            completion = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": body.message},
+                ],
+            )
+            content = completion.choices[0].message.content or "Şu an yanıt üretemedim, tekrar dener misin?"
+            return ChatResponse(reply=content, source=f"openai.chat:{model}")
+        except Exception as chat_error:
+            error_detail = f"responses={responses_error.__class__.__name__}, chat={chat_error.__class__.__name__}"
+            return ChatResponse(
+                reply="OpenAI bağlantısında sorun oldu. API anahtarını, modeli ve internet bağlantını kontrol et.",
+                source="openai-error",
+                error=error_detail,
+            )

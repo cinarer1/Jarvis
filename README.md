@@ -31,6 +31,8 @@ OPENAI_MODEL=gpt-4.1-mini
 
 > Uygulama `.env` dosyasını otomatik yükler.
 
+Windows'ta `.env` dosyası kesinlikle **proje kökünde** olmalı (README'nin olduğu klasör).
+
 ## Çalıştırma
 
 ```bash
@@ -62,3 +64,16 @@ python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
 - Mikrofon iznini tarayıcıdan aç.
 - Uzak cihazdan (telefon vb.) erişiyorsan bazı tarayıcılar HTTPS ister.
 - `localhost` üzerinde test genelde en sorunsuz yöntemdir.
+
+## Sık görülen iki sorun
+
+1. **"OpenAI bağlantısında sorun oldu"**
+   - `.env` dosyasının proje kökünde olduğundan emin ol.
+   - `OPENAI_API_KEY=sk-...` satırında tırnak kullanma.
+   - Girdiğin model hesabında açık olmalı (`gpt-4.1-mini` yerine gerekirse `gpt-4o-mini` dene).
+   - Uygulama açıldığında sohbet ekranında `OpenAI bağlı. Model: ...` mesajını görmelisin.
+
+2. **Mikrofon çalışmıyor**
+   - Tarayıcı izinlerinde mikrofonu `Allow/İzin ver` yap.
+   - Telefonla IP üzerinden açıyorsan tarayıcı HTTPS isteyebilir; önce bilgisayarda `localhost` ile test et.
+   - Uygulama artık hata durumunda ekranda nedenini yazar (izin, cihaz, ağ vb.).
