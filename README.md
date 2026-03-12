@@ -9,7 +9,7 @@ Bu proje, **Türkçe konuşabilen**, **sesten metne giriş** alabilen, **sesli y
 - Asistan cevabını Türkçe sesli okuma (SpeechSynthesis)
 - FastAPI ile backend API
 - OpenAI API anahtarı varsa gerçek model yanıtı
-- API anahtarı yoksa yerel demo yanıtı (offline fallback)
+- API anahtarı yoksa yerel modda devam etme
 - Telefon üzerinden erişim için `0.0.0.0` üzerinde çalıştırma
 
 ## Kurulum
@@ -20,12 +20,21 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
+## OpenAI anahtarı (.env ile önerilen)
+
+Proje kökünde `.env` dosyası oluştur:
+
+```env
+OPENAI_API_KEY=sk-...
+OPENAI_MODEL=gpt-4.1-mini
+```
+
+> Uygulama `.env` dosyasını otomatik yükler.
+
 ## Çalıştırma
 
 ```bash
-export OPENAI_API_KEY="sk-..."   # Opsiyonel ama önerilir
-export OPENAI_MODEL="gpt-4.1-mini" # Opsiyonel
-uvicorn app.main:app --host 0.0.0.0 --port 8000
+python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
 Ardından:
@@ -34,15 +43,22 @@ Ardından:
 
 > Bilgisayar IP'si için: `ip a` veya `hostname -I`
 
-## Dosya yapısı
+## VS Code notu (Windows)
 
-- `app/main.py`: FastAPI backend, chat endpoint
-- `app/static/index.html`: Uygulama arayüzü
-- `app/static/style.css`: Stil
-- `app/static/app.js`: Sesli + yazılı sohbet mantığı
+- VS Code terminalinde **proje kökünde** ol.
+- `app` klasörünün içine girip `uvicorn app.main:app` çalıştırırsan `No module named 'app'` hatası alırsın.
 
-## Notlar
+Doğru örnek:
 
-- Tarayıcıların SpeechRecognition desteği farklı olabilir (Chrome tabanlı tarayıcılar daha uyumlu).
-- Mikrofon izni verilmelidir.
-- Üretim ortamı için HTTPS, kimlik doğrulama ve rate-limit ekleyin.
+```powershell
+cd C:\...\Jarvis
+.\.venv\Scripts\Activate.ps1
+python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
+```
+
+## Mikrofon çalışmıyorsa
+
+- Chrome veya Edge kullan (SpeechRecognition desteği daha iyi).
+- Mikrofon iznini tarayıcıdan aç.
+- Uzak cihazdan (telefon vb.) erişiyorsan bazı tarayıcılar HTTPS ister.
+- `localhost` üzerinde test genelde en sorunsuz yöntemdir.

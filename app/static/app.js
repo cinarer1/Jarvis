@@ -15,6 +15,10 @@ function addMessage(text, who) {
   chat.scrollTop = chat.scrollHeight;
 }
 
+function setStatus(text) {
+  statusEl.textContent = text;
+}
+
 function speak(text) {
   if (!speakEnabled || !('speechSynthesis' in window)) return;
   const utterance = new SpeechSynthesisUtterance(text);
@@ -24,9 +28,28 @@ function speak(text) {
   window.speechSynthesis.speak(utterance);
 }
 
+async function loadConfig() {
+  try {
+    const res = await fetch('/api/config');
+    if (!res.ok) throw new Error('config okunamadı');
+    const data = await res.json();
+
+    if (data.has_openai_key) {
+      addMessage(`OpenAI bağlı. Model: ${data.model}`, 'bot');
+      setStatus(`Hazır. OpenAI aktif (${data.model}).`);
+    } else {
+      addMessage('OpenAI anahtarı bulunamadı, yerel modda çalışıyorum.', 'bot');
+      addMessage('İstersen proje köküne .env dosyası açıp OPENAI_API_KEY ekleyebilirsin.', 'bot');
+      setStatus('Hazır. OpenAI anahtarı yok, yerel mod aktif.');
+    }
+  } catch {
+    setStatus('Hazır. Konfigürasyon kontrol edilemedi.');
+  }
+}
+
 async function sendMessage(message) {
   addMessage(message, 'user');
-  statusEl.textContent = 'Yanıt hazırlanıyor...';
+  setStatus('Yanıt hazırlanıyor...');
 
   try {
     const res = await fetch('/api/chat', {
@@ -42,10 +65,10 @@ async function sendMessage(message) {
     const data = await res.json();
     addMessage(data.reply, 'bot');
     speak(data.reply);
-    statusEl.textContent = `Hazır. Kaynak: ${data.source}`;
+    setStatus(`Hazır. Kaynak: ${data.source}`);
   } catch (error) {
     addMessage('Bir hata oluştu. Lütfen tekrar dene.', 'bot');
-    statusEl.textContent = `Hata: ${error.message}`;
+    setStatus(`Hata: ${error.message}`);
   }
 }
 
@@ -71,29 +94,41 @@ if (SpeechRecognition) {
   recognition.maxAlternatives = 1;
 
   micBtn.addEventListener('click', () => {
-    statusEl.textContent = 'Dinleniyor...';
+    setStatus('Dinleniyor...');
     recognition.start();
   });
 
   recognition.addEventListener('result', async (event) => {
     const transcript = event.results[0][0].transcript;
     input.value = transcript;
-    statusEl.textContent = `Duyuldu: ${transcript}`;
+    setStatus(`Duyuldu: ${transcript}`);
     await sendMessage(transcript);
   });
 
   recognition.addEventListener('error', (event) => {
-    statusEl.textContent = `Mikrofon hatası: ${event.error}`;
+    const tips = {
+      'not-allowed': 'Mikrofon izni reddedildi. Tarayıcıdan mikrofon iznini açmalısın.',
+      'service-not-allowed': 'Tarayıcı ses servisine izin vermiyor. Chrome kullanmayı dene.',
+      'no-speech': 'Ses algılanmadı, tekrar dene.',
+      'audio-capture': 'Mikrofon cihazı bulunamadı.',
+    };
+    setStatus(tips[event.error] || `Mikrofon hatası: ${event.error}`);
   });
 
   recognition.addEventListener('end', () => {
     if (!statusEl.textContent.startsWith('Hazır.')) {
-      statusEl.textContent = 'Hazır.';
+      setStatus('Hazır.');
     }
   });
 } else {
   micBtn.disabled = true;
-  statusEl.textContent = 'Bu tarayıcı sesli giriş desteklemiyor.';
+  addMessage('Tarayıcın SpeechRecognition desteklemiyor. Chrome/Edge önerilir.', 'bot');
+  setStatus('Bu tarayıcı sesli giriş desteklemiyor.');
 }
 
 addMessage('Merhaba! Ben Jarvis TR. Türkçe yazabilir veya konuşabilirsin.', 'bot');
+if (location.protocol !== 'https:' && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
+  addMessage('Not: Mikrofon çoğu tarayıcıda HTTPS ister. Uzaktan bağlanırken HTTPS gerekebilir.', 'bot');
+}
+
+loadConfig();
