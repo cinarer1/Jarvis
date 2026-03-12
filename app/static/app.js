@@ -9,6 +9,8 @@ let speakEnabled = true;
 let isRecording = false;
 let mediaRecorder = null;
 let chunks = [];
+let speechRecognition = null;
+let recognitionActive = false;
 
 function addMessage(text, who) {
   const div = document.createElement('div');
@@ -31,13 +33,19 @@ function speak(text) {
   window.speechSynthesis.speak(utterance);
 }
 
+function parseErrorMessage(error) {
+  if (!error) return 'Bilinmeyen hata';
+  if (typeof error === 'string') return error;
+  return error.message || String(error);
+}
+
 async function loadConfig() {
   try {
     const res = await fetch('/api/config');
     const data = await res.json();
     if (data.has_openai_key) {
-      addMessage(`OpenAI bağlı. Model: ${data.model}`, 'bot');
-      setStatus(`Hazır. OpenAI aktif (${data.model}).`);
+      addMessage(`OpenAI bağlı. Chat: ${data.chat_model} | Transcribe: ${data.transcribe_model}`, 'bot');
+      setStatus('Hazır. OpenAI aktif.');
     } else {
       addMessage('OpenAI anahtarı bulunamadı, yerel mod aktif.', 'bot');
       setStatus('Hazır. OpenAI anahtarı yok.');
@@ -68,10 +76,10 @@ async function sendMessage(message) {
     speak(data.reply);
     setStatus(`Hazır. Kaynak: ${data.source}`);
   } catch (error) {
-    const failText = `Yanıt alınamadı: ${error.message}`;
+    const failText = `Yanıt alınamadı: ${parseErrorMessage(error)}`;
     addMessage(failText, 'bot');
     speak(failText);
-    setStatus(`Hata: ${error.message}`);
+    setStatus(failText);
   }
 }
 
@@ -96,20 +104,28 @@ async function transcribeBlob(blob) {
     method: 'POST',
     body: formData,
   });
-  const data = await res.json();
+
+  let data = null;
+  try {
+    data = await res.json();
+  } catch {
+    throw new Error(`Transkripsiyon JSON hatası (${res.status})`);
+  }
 
   if (!res.ok || data.error) {
     throw new Error(data?.error || `Transkripsiyon hatası: ${res.status}`);
   }
+
   if (!data.text) {
     throw new Error('Ses metne çevrilemedi.');
   }
+
   return data.text;
 }
 
-async function startRecording() {
+async function startRecorderMode() {
   if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
-    throw new Error('Tarayıcı mikrofon kaydı desteklemiyor. Chrome/Edge deneyin.');
+    throw new Error('Tarayıcı mikrofon kaydı desteklemiyor.');
   }
 
   const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -122,15 +138,15 @@ async function startRecording() {
 
   mediaRecorder.onstop = async () => {
     stream.getTracks().forEach((track) => track.stop());
+
     try {
       setStatus('Ses metne çevriliyor...');
       const blob = new Blob(chunks, { type: 'audio/webm' });
       const text = await transcribeBlob(blob);
-      input.value = text;
       setStatus(`Duyuldu: ${text}`);
       await sendMessage(text);
     } catch (error) {
-      const msg = `Mikrofon kaydı çözümlenemedi: ${error.message}`;
+      const msg = `Mikrofon kaydı çözümlenemedi: ${parseErrorMessage(error)}`;
       addMessage(msg, 'bot');
       speak(msg);
       setStatus(msg);
@@ -146,6 +162,42 @@ async function startRecording() {
   setStatus('Kayıt başladı... Bitince tekrar butona bas.');
 }
 
+function setupSpeechRecognition() {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) return;
+
+  speechRecognition = new SR();
+  speechRecognition.lang = 'tr-TR';
+  speechRecognition.interimResults = false;
+  speechRecognition.maxAlternatives = 1;
+
+  speechRecognition.addEventListener('start', () => {
+    recognitionActive = true;
+    micBtn.textContent = '🎙️ Dinliyor...';
+    setStatus('Dinleniyor...');
+  });
+
+  speechRecognition.addEventListener('result', async (event) => {
+    const transcript = event.results[0][0].transcript;
+    recognitionActive = false;
+    micBtn.textContent = '🎙️ Konuş';
+    setStatus(`Duyuldu: ${transcript}`);
+    await sendMessage(transcript);
+  });
+
+  speechRecognition.addEventListener('error', async () => {
+    recognitionActive = false;
+    micBtn.textContent = '🎙️ Konuş';
+    addMessage('SpeechRecognition başarısız oldu, kayıt moduna geçiyorum.', 'bot');
+    await startRecorderMode();
+  });
+
+  speechRecognition.addEventListener('end', () => {
+    recognitionActive = false;
+    if (!isRecording) micBtn.textContent = '🎙️ Konuş';
+  });
+}
+
 micBtn.addEventListener('click', async () => {
   try {
     if (isRecording && mediaRecorder) {
@@ -153,19 +205,27 @@ micBtn.addEventListener('click', async () => {
       return;
     }
 
-    await startRecording();
+    if (speechRecognition && !recognitionActive) {
+      try {
+        await navigator.mediaDevices.getUserMedia({ audio: true }).then((s) => s.getTracks().forEach((t) => t.stop()));
+        speechRecognition.start();
+        return;
+      } catch {
+        // izin veya SR başarısızsa recorder moduna düş
+      }
+    }
+
+    await startRecorderMode();
   } catch (error) {
-    const msg = `Mikrofon açılamadı: ${error.message}`;
+    const msg = `Mikrofon açılamadı: ${parseErrorMessage(error)}`;
     addMessage(msg, 'bot');
     speak(msg);
     setStatus(msg);
   }
 });
 
-addMessage('Merhaba! Ben Jarvis TR. Türkçe yazabilir veya konuşabilirsin.', 'bot');
-addMessage('Mikrofon için kayıt modu kullanılıyor: Başlatmak için 🎙️ Konuş butonuna bas, bitince tekrar bas.', 'bot');
-if (location.protocol !== 'https:' && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
-  addMessage('Not: Mikrofon çoğu tarayıcıda HTTPS ister. Telefondan bağlanıyorsan HTTPS gerekebilir.', 'bot');
-}
+addMessage('Merhaba! Ben Jarvis TR.', 'bot');
+addMessage('Mikrofona bas: önce hızlı konuşma denemesi, gerekirse otomatik kayıt moduna düşer.', 'bot');
 
 loadConfig();
+setupSpeechRecognition();

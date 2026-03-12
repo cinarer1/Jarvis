@@ -41,7 +41,8 @@ class ChatResponse(BaseModel):
 
 class ConfigResponse(BaseModel):
     has_openai_key: bool
-    model: str
+    chat_model: str
+    transcribe_model: str
 
 
 class TranscribeResponse(BaseModel):
@@ -78,6 +79,15 @@ def _coerce_text(value: Any) -> str:
     return str(value)
 
 
+def _safe_error(exc: Exception) -> str:
+    cls = exc.__class__.__name__
+    msg = str(exc).strip()
+    if not msg:
+        return cls
+    msg = msg.replace("\n", " ")[:180]
+    return f"{cls}: {msg}"
+
+
 def local_fallback_reply(message: str) -> str:
     return f"Şu an yerel moddayım. Mesajını aldım ✅ {message}"
 
@@ -89,7 +99,11 @@ def index() -> FileResponse:
 
 @app.get("/api/config", response_model=ConfigResponse)
 def config() -> ConfigResponse:
-    return ConfigResponse(has_openai_key=bool(_api_key()), model=_chat_model())
+    return ConfigResponse(
+        has_openai_key=bool(_api_key()),
+        chat_model=_chat_model(),
+        transcribe_model=_transcribe_model(),
+    )
 
 
 @app.post("/api/chat", response_model=ChatResponse)
@@ -122,7 +136,7 @@ def chat(body: ChatRequest) -> ChatResponse:
                     content = "Şu an yanıt üretemedim, tekrar dener misin?"
                 return ChatResponse(reply=content, source=f"openai.chat:{model}")
             except Exception as exc:
-                last_error = f"{model}:{exc.__class__.__name__}"
+                last_error = _safe_error(exc)
 
         return ChatResponse(
             reply="OpenAI bağlantısında sorun oldu. Model veya API anahtarını kontrol et.",
@@ -133,7 +147,7 @@ def chat(body: ChatRequest) -> ChatResponse:
         return ChatResponse(
             reply="Sunucuda beklenmedik bir hata oluştu. Lütfen tekrar dene.",
             source="server-error",
-            error=uncaught.__class__.__name__,
+            error=_safe_error(uncaught),
         )
 
 
@@ -152,10 +166,11 @@ async def transcribe(audio: UploadFile = File(...)) -> TranscribeResponse:
         transcript = client.audio.transcriptions.create(
             model=_transcribe_model(),
             file=(audio.filename or "mic.webm", file_bytes, audio.content_type or "audio/webm"),
+            language="tr",
         )
         text = _coerce_text(getattr(transcript, "text", "")).strip()
         if not text:
             return TranscribeResponse(text="", source="openai-transcribe", error="Boş transkript")
         return TranscribeResponse(text=text, source="openai-transcribe")
     except Exception as exc:
-        return TranscribeResponse(text="", source="openai-transcribe-error", error=exc.__class__.__name__)
+        return TranscribeResponse(text="", source="openai-transcribe-error", error=_safe_error(exc))
