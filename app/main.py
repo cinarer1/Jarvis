@@ -7,7 +7,7 @@ from fastapi import FastAPI, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from openai import OpenAI
+from groq import Groq
 from pydantic import BaseModel
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -40,7 +40,7 @@ class ChatResponse(BaseModel):
 
 
 class ConfigResponse(BaseModel):
-    has_openai_key: bool
+    has_groq_key: bool
     chat_model: str
     transcribe_model: str
 
@@ -58,15 +58,15 @@ SYSTEM_PROMPT = (
 
 
 def _api_key() -> str:
-    return os.getenv("OPENAI_API_KEY", "").strip()
+    return os.getenv("GROQ_API_KEY", "").strip()
 
 
 def _chat_model() -> str:
-    return os.getenv("OPENAI_MODEL", "gpt-4o-mini").strip() or "gpt-4o-mini"
+    return os.getenv("GROQ_CHAT_MODEL", "llama-3.1-8b-instant").strip() or "llama-3.1-8b-instant"
 
 
 def _transcribe_model() -> str:
-    return os.getenv("OPENAI_TRANSCRIBE_MODEL", "whisper-1").strip() or "whisper-1"
+    return os.getenv("GROQ_TRANSCRIBE_MODEL", "whisper-large-v3-turbo").strip() or "whisper-large-v3-turbo"
 
 
 def _coerce_text(value: Any) -> str:
@@ -88,17 +88,9 @@ def _safe_error(exc: Exception) -> str:
     return f"{cls}: {msg}"
 
 
-def _openai_client() -> tuple[OpenAI | None, str | None]:
+def _groq_client() -> tuple[Groq | None, str | None]:
     try:
-        return OpenAI(api_key=_api_key()), None
-    except TypeError as exc:
-        text = str(exc)
-        if "unexpected keyword argument 'proxies'" in text:
-            return None, (
-                "OpenAI/httpx sürüm uyumsuzluğu var: `proxies` hatası. "
-                "Sanal ortamı yeniden kurup `pip install -r requirements.txt` çalıştır."
-            )
-        return None, _safe_error(exc)
+        return Groq(api_key=_api_key()), None
     except Exception as exc:
         return None, _safe_error(exc)
 
@@ -115,7 +107,7 @@ def index() -> FileResponse:
 @app.get("/api/config", response_model=ConfigResponse)
 def config() -> ConfigResponse:
     return ConfigResponse(
-        has_openai_key=bool(_api_key()),
+        has_groq_key=bool(_api_key()),
         chat_model=_chat_model(),
         transcribe_model=_transcribe_model(),
     )
@@ -124,21 +116,20 @@ def config() -> ConfigResponse:
 @app.post("/api/chat", response_model=ChatResponse)
 def chat(body: ChatRequest) -> ChatResponse:
     try:
-        api_key = _api_key()
-        if not api_key:
+        if not _api_key():
             return ChatResponse(reply=local_fallback_reply(body.message), source="local-fallback")
 
-        client, client_err = _openai_client()
+        client, client_err = _groq_client()
         if not client:
             return ChatResponse(
-                reply="OpenAI istemcisi başlatılamadı. Paket sürümlerini güncelleyelim.",
-                source="openai-client-error",
+                reply="Groq istemcisi başlatılamadı. Anahtarı kontrol et.",
+                source="groq-client-error",
                 error=client_err,
             )
 
         models_to_try = []
         primary = _chat_model()
-        for candidate in (primary, "gpt-4o-mini", "gpt-3.5-turbo"):
+        for candidate in (primary, "llama-3.1-8b-instant", "llama-3.3-70b-versatile"):
             if candidate and candidate not in models_to_try:
                 models_to_try.append(candidate)
 
@@ -155,13 +146,13 @@ def chat(body: ChatRequest) -> ChatResponse:
                 content = _coerce_text(completion.choices[0].message.content).strip()
                 if not content:
                     content = "Şu an yanıt üretemedim, tekrar dener misin?"
-                return ChatResponse(reply=content, source=f"openai.chat:{model}")
+                return ChatResponse(reply=content, source=f"groq.chat:{model}")
             except Exception as exc:
                 last_error = _safe_error(exc)
 
         return ChatResponse(
-            reply="OpenAI bağlantısında sorun oldu. Model veya API anahtarını kontrol et.",
-            source="openai-error",
+            reply="Groq bağlantısında sorun oldu. Model veya API anahtarını kontrol et.",
+            source="groq-error",
             error=last_error,
         )
     except Exception as uncaught:
@@ -176,24 +167,25 @@ def chat(body: ChatRequest) -> ChatResponse:
 async def transcribe(audio: UploadFile = File(...)) -> TranscribeResponse:
     try:
         if not _api_key():
-            return TranscribeResponse(text="", source="transcribe-local", error="OPENAI_API_KEY bulunamadı")
+            return TranscribeResponse(text="", source="transcribe-local", error="GROQ_API_KEY bulunamadı")
 
         file_bytes = await audio.read()
         if not file_bytes:
-            return TranscribeResponse(text="", source="openai-transcribe", error="Boş ses dosyası")
+            return TranscribeResponse(text="", source="groq-transcribe", error="Boş ses dosyası")
 
-        client, client_err = _openai_client()
+        client, client_err = _groq_client()
         if not client:
-            return TranscribeResponse(text="", source="openai-client-error", error=client_err)
+            return TranscribeResponse(text="", source="groq-client-error", error=client_err)
 
         transcript = client.audio.transcriptions.create(
             model=_transcribe_model(),
-            file=(audio.filename or "mic.webm", file_bytes, audio.content_type or "audio/webm"),
+            file=(audio.filename or "mic.webm", file_bytes),
             language="tr",
+            response_format="verbose_json",
         )
         text = _coerce_text(getattr(transcript, "text", "")).strip()
         if not text:
-            return TranscribeResponse(text="", source="openai-transcribe", error="Boş transkript")
-        return TranscribeResponse(text=text, source="openai-transcribe")
+            return TranscribeResponse(text="", source="groq-transcribe", error="Boş transkript")
+        return TranscribeResponse(text=text, source="groq-transcribe")
     except Exception as exc:
-        return TranscribeResponse(text="", source="openai-transcribe-error", error=_safe_error(exc))
+        return TranscribeResponse(text="", source="groq-transcribe-error", error=_safe_error(exc))

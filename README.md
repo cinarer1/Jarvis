@@ -1,4 +1,4 @@
-# Jarvis TR — Sesli + Yazılı Yapay Zeka Asistanı
+# Jarvis TR — Groq Destekli Sesli + Yazılı Yapay Zeka Asistanı
 
 ## Kurulum
 
@@ -11,9 +11,9 @@ pip install -r requirements.txt
 ## .env
 
 ```env
-OPENAI_API_KEY=sk-...
-OPENAI_MODEL=gpt-4o-mini
-OPENAI_TRANSCRIBE_MODEL=whisper-1
+GROQ_API_KEY=gsk_...
+GROQ_CHAT_MODEL=llama-3.1-8b-instant
+GROQ_TRANSCRIBE_MODEL=whisper-large-v3-turbo
 ```
 
 ## Çalıştırma
@@ -24,35 +24,10 @@ python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
 
 Aç: `http://localhost:8000`
 
-## Önemli: `proxies` TypeError düzeltmesi
+## Notlar
 
-Eğer şu hata geliyorsa:
-
-`TypeError: Client.__init__() got an unexpected keyword argument 'proxies'`
-
-bu, `openai` ile `httpx` sürüm uyumsuzluğudur. Bu repo artık `httpx==0.27.2` pinli geliyor.
-
-Mutlaka temiz kurulum yap:
-
-```bash
-# proje kökünde
-rm -rf .venv
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-```
-
-Windows PowerShell:
-
-```powershell
-Remove-Item -Recurse -Force .venv
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
-```
-
-## Mikrofon notu
-
-- Mikrofon butonu önce SpeechRecognition dener.
-- O başarısız olursa otomatik kayıt (MediaRecorder) moduna geçer.
-- Tarayıcı izinleri kapalıysa mikrofon çalışmaz.
+- Bu sürümde OpenAI kaldırıldı, doğrudan **Groq API** kullanılır.
+- Chat endpoint: Groq `chat.completions`.
+- Ses çözümleme: Groq `audio.transcriptions`.
+- Mikrofon akışı: SpeechRecognition denenir, gerekirse MediaRecorder fallback.
+- `304 Not Modified` logu hata değildir (cache bilgisidir).

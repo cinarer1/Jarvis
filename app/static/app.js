@@ -43,12 +43,12 @@ async function loadConfig() {
   try {
     const res = await fetch('/api/config');
     const data = await res.json();
-    if (data.has_openai_key) {
-      addMessage(`OpenAI bağlı. Chat: ${data.chat_model} | Transcribe: ${data.transcribe_model}`, 'bot');
-      setStatus('Hazır. OpenAI aktif.');
+    if (data.has_groq_key) {
+      addMessage(`Groq bağlı. Chat: ${data.chat_model} | Transcribe: ${data.transcribe_model}`, 'bot');
+      setStatus('Hazır. Groq aktif.');
     } else {
-      addMessage('OpenAI anahtarı bulunamadı, yerel mod aktif.', 'bot');
-      setStatus('Hazır. OpenAI anahtarı yok.');
+      addMessage('Groq anahtarı bulunamadı, yerel mod aktif.', 'bot');
+      setStatus('Hazır. Groq anahtarı yok.');
     }
   } catch {
     setStatus('Hazır. Konfigürasyon okunamadı.');
