@@ -9,6 +9,8 @@ let speakEnabled = true;
 let isRecording = false;
 let mediaRecorder = null;
 let chunks = [];
+let recognition = null;
+let recognitionRunning = false;
 
 function addMessage(text, who) {
   const div = document.createElement('div');
@@ -71,9 +73,7 @@ async function sendMessage(message) {
     }
 
     addMessage(data.reply, 'bot');
-    if (data.error) {
-      addMessage(`Teknik detay: ${data.error}`, 'bot');
-    }
+    if (data.error) addMessage(`Teknik detay: ${data.error}`, 'bot');
     speak(data.reply);
     setStatus(`Hazır. Kaynak: ${data.source}`);
   } catch (error) {
@@ -102,20 +102,11 @@ async function transcribeBlob(blob) {
   const formData = new FormData();
   formData.append('audio', blob, 'speech.webm');
 
-  const res = await fetch('/api/transcribe', {
-    method: 'POST',
-    body: formData,
-  });
-
+  const res = await fetch('/api/transcribe', { method: 'POST', body: formData });
   const data = await res.json();
-  if (!res.ok || data.error) {
-    throw new Error(data.error || `Transkripsiyon hatası: ${res.status}`);
-  }
 
-  if (!data.text) {
-    throw new Error('Ses metne çevrilemedi.');
-  }
-
+  if (!res.ok || data.error) throw new Error(data.error || `Transkripsiyon hatası: ${res.status}`);
+  if (!data.text) throw new Error('Ses metne çevrilemedi.');
   return data.text;
 }
 
@@ -143,6 +134,7 @@ async function startRecordingFallback() {
     } catch (error) {
       const msg = `Mikrofon kaydı çözümlenemedi: ${error.message}`;
       addMessage(msg, 'bot');
+      speak(msg);
       setStatus(msg);
     } finally {
       isRecording = false;
@@ -156,14 +148,40 @@ async function startRecordingFallback() {
   setStatus('Kayıt başladı... Bitince tekrar butona bas.');
 }
 
-const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-let recognition = null;
+async function safeStartRecognition() {
+  if (!recognition) return false;
+  if (recognitionRunning) {
+    setStatus('Mikrofon zaten dinliyor...');
+    return true;
+  }
 
+  try {
+    recognition.start();
+    recognitionRunning = true;
+    setStatus('Dinleniyor...');
+    return true;
+  } catch (error) {
+    // InvalidStateError: recognition has already started
+    if ((error && error.name === 'InvalidStateError') || String(error).includes('already started')) {
+      recognitionRunning = true;
+      setStatus('Mikrofon zaten dinliyor...');
+      return true;
+    }
+    throw error;
+  }
+}
+
+const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 if (SpeechRecognition) {
   recognition = new SpeechRecognition();
   recognition.lang = 'tr-TR';
   recognition.interimResults = false;
   recognition.maxAlternatives = 1;
+
+  recognition.addEventListener('start', () => {
+    recognitionRunning = true;
+    micBtn.textContent = '🎙️ Dinliyor...';
+  });
 
   recognition.addEventListener('result', async (event) => {
     const transcript = event.results[0][0].transcript;
@@ -173,12 +191,16 @@ if (SpeechRecognition) {
   });
 
   recognition.addEventListener('error', async (event) => {
+    recognitionRunning = false;
+    micBtn.textContent = '🎙️ Konuş';
+
     const tips = {
       'not-allowed': 'Mikrofon izni reddedildi. Tarayıcı ayarlarından izin ver.',
-      'service-not-allowed': 'Tarayıcı ses servisine izin vermiyor.',
+      'service-not-allowed': 'Tarayıcı ses servisine izin vermiyor. Kayıt moduna geçiliyor...',
       'no-speech': 'Ses algılanmadı, tekrar dene.',
       'audio-capture': 'Mikrofon cihazı bulunamadı.',
       'network': 'SpeechRecognition ağ hatası verdi. Kayıt moduna geçiliyor...',
+      'aborted': 'Dinleme durduruldu.',
     };
 
     setStatus(tips[event.error] || `Mikrofon hatası: ${event.error}`);
@@ -187,12 +209,18 @@ if (SpeechRecognition) {
       try {
         await startRecordingFallback();
       } catch (error) {
-        addMessage(`Kayıt modu açılamadı: ${error.message}`, 'bot');
+        const msg = `Kayıt modu açılamadı: ${error.message}`;
+        addMessage(msg, 'bot');
+        speak(msg);
       }
     }
   });
 
   recognition.addEventListener('end', () => {
+    recognitionRunning = false;
+    if (!isRecording) {
+      micBtn.textContent = '🎙️ Konuş';
+    }
     if (!isRecording && !statusEl.textContent.startsWith('Hazır.')) {
       setStatus('Hazır.');
     }
@@ -207,15 +235,15 @@ micBtn.addEventListener('click', async () => {
     }
 
     if (recognition) {
-      setStatus('Dinleniyor...');
-      recognition.start();
-      return;
+      const started = await safeStartRecognition();
+      if (started) return;
     }
 
     await startRecordingFallback();
   } catch (error) {
     const msg = `Mikrofon açılamadı: ${error.message}`;
     addMessage(msg, 'bot');
+    speak(msg);
     setStatus(msg);
   }
 });

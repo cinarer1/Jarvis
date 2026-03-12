@@ -84,58 +84,65 @@ def config() -> ConfigResponse:
 
 @app.post("/api/chat", response_model=ChatResponse)
 def chat(body: ChatRequest) -> ChatResponse:
-    api_key = _api_key()
-    model = _model()
-
-    if not api_key:
-        return ChatResponse(reply=local_fallback_reply(body.message), source="local-fallback")
-
-    client = OpenAI(api_key=api_key)
     try:
-        response = client.responses.create(
-            model=model,
-            input=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": body.message},
-            ],
-        )
-        text_reply = (response.output_text or "").strip() or "Şu an yanıt üretemedim, tekrar dener misin?"
-        return ChatResponse(reply=text_reply, source=f"openai.responses:{model}")
-    except Exception as responses_error:
+        api_key = _api_key()
+        model = _model()
+
+        if not api_key:
+            return ChatResponse(reply=local_fallback_reply(body.message), source="local-fallback")
+
+        client = OpenAI(api_key=api_key)
         try:
-            completion = client.chat.completions.create(
+            response = client.responses.create(
                 model=model,
-                messages=[
+                input=[
                     {"role": "system", "content": SYSTEM_PROMPT},
                     {"role": "user", "content": body.message},
                 ],
             )
-            content = completion.choices[0].message.content or "Şu an yanıt üretemedim, tekrar dener misin?"
-            return ChatResponse(reply=content, source=f"openai.chat:{model}")
-        except Exception as chat_error:
-            error_detail = f"responses={responses_error.__class__.__name__}, chat={chat_error.__class__.__name__}"
-            return ChatResponse(
-                reply="OpenAI bağlantısında sorun oldu. Model veya API anahtarını kontrol et.",
-                source="openai-error",
-                error=error_detail,
-            )
+            text_reply = (response.output_text or "").strip() or "Şu an yanıt üretemedim, tekrar dener misin?"
+            return ChatResponse(reply=text_reply, source=f"openai.responses:{model}")
+        except Exception as responses_error:
+            try:
+                completion = client.chat.completions.create(
+                    model=model,
+                    messages=[
+                        {"role": "system", "content": SYSTEM_PROMPT},
+                        {"role": "user", "content": body.message},
+                    ],
+                )
+                content = completion.choices[0].message.content or "Şu an yanıt üretemedim, tekrar dener misin?"
+                return ChatResponse(reply=content, source=f"openai.chat:{model}")
+            except Exception as chat_error:
+                error_detail = f"responses={responses_error.__class__.__name__}, chat={chat_error.__class__.__name__}"
+                return ChatResponse(
+                    reply="OpenAI bağlantısında sorun oldu. Model veya API anahtarını kontrol et.",
+                    source="openai-error",
+                    error=error_detail,
+                )
+    except Exception as uncaught:
+        return ChatResponse(
+            reply="Sunucuda beklenmedik bir hata oluştu. Lütfen tekrar dene.",
+            source="server-error",
+            error=uncaught.__class__.__name__,
+        )
 
 
 @app.post("/api/transcribe", response_model=TranscribeResponse)
 async def transcribe(audio: UploadFile = File(...)) -> TranscribeResponse:
-    api_key = _api_key()
-    if not api_key:
-        return TranscribeResponse(
-            text="",
-            source="transcribe-local",
-            error="OPENAI_API_KEY bulunamadı",
-        )
-
     try:
+        api_key = _api_key()
+        if not api_key:
+            return TranscribeResponse(text="", source="transcribe-local", error="OPENAI_API_KEY bulunamadı")
+
+        file_bytes = await audio.read()
+        if not file_bytes:
+            return TranscribeResponse(text="", source="openai-transcribe", error="Boş ses dosyası")
+
         client = OpenAI(api_key=api_key)
         transcript = client.audio.transcriptions.create(
             model="gpt-4o-mini-transcribe",
-            file=(audio.filename or "mic.webm", await audio.read(), audio.content_type or "audio/webm"),
+            file=(audio.filename or "mic.webm", file_bytes, audio.content_type or "audio/webm"),
         )
         text = (getattr(transcript, "text", "") or "").strip()
         if not text:

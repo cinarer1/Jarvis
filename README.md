@@ -6,7 +6,7 @@ Bu proje, **Türkçe konuşabilen**, **sesten metne giriş** alabilen, **sesli y
 
 - Türkçe metin tabanlı sohbet arayüzü
 - Tarayıcı mikrofonu ile sesli komut
-- SpeechRecognition hata verirse **kayıt + OpenAI transcribe fallback**
+- SpeechRecognition çalışmazsa kayıt + OpenAI transcribe fallback
 - Asistan cevabını Türkçe sesli okuma (SpeechSynthesis)
 - FastAPI backend (`/api/config`, `/api/chat`, `/api/transcribe`)
 
@@ -27,8 +27,6 @@ OPENAI_API_KEY=sk-...
 OPENAI_MODEL=gpt-4o-mini
 ```
 
-> `.env` dosyası otomatik yüklenir.
-
 ## Çalıştırma
 
 ```bash
@@ -40,19 +38,24 @@ python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
 
 ## Sorun giderme
 
-### 1) API 500 hatası
+### "recognition has already started" hatası
 
-- Artık backend çoğu durumda 500 yerine kontrollü JSON hata döner.
-- Modelini `gpt-4o-mini` ile dene.
-- `.env` dosyasının proje kökünde olduğuna emin ol.
+- Bu sürümde mikrofon state yönetimi düzeltildi.
+- Hızlıca art arda tıklasan bile aynı anda ikinci `recognition.start()` çağrısı yapılmaz.
 
-### 2) Mikrofon çalışmıyor
+### API 500 hatası
+
+- Backend, yakalanmamış hataları `server-error` veya `openai-error` olarak JSON döndürür.
+- Yine 500 alırsan büyük olasılıkla dependency eksiktir: `pip install -r requirements.txt`
+- Özellikle `/api/transcribe` için `python-multipart` zorunludur.
+
+### Mikrofon çalışmıyor
 
 - Chrome/Edge kullan.
 - Tarayıcı mikrofon izni açık olsun.
 - IP ile bağlanıyorsan HTTPS gerekebilir.
-- SpeechRecognition başarısızsa uygulama otomatik olarak kayıt alıp `/api/transcribe` ile metne çevirir.
+- SpeechRecognition başarısızsa uygulama otomatik kayıt moduna geçer.
 
-### 3) Hata alınca sesli yanıt kesiliyor
+### Hata alınca sesli yanıt kesiliyor
 
-- Artık hata mesajları da sesli okunur (sesli yanıt açıksa).
+- Bu sürümde hata mesajları da sesli okunur (sesli yanıt açıksa).
