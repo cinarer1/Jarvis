@@ -33,6 +33,14 @@ function speak(text) {
   window.speechSynthesis.speak(utterance);
 }
 
+async function ensureMicPermission() {
+  if (!navigator.mediaDevices?.getUserMedia) {
+    throw new Error('Tarayıcı mikrofon izin API desteklemiyor.');
+  }
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  stream.getTracks().forEach((track) => track.stop());
+}
+
 async function loadConfig() {
   try {
     const res = await fetch('/api/config');
@@ -155,13 +163,14 @@ async function safeStartRecognition() {
     return true;
   }
 
+  await ensureMicPermission();
+
   try {
     recognition.start();
     recognitionRunning = true;
     setStatus('Dinleniyor...');
     return true;
   } catch (error) {
-    // InvalidStateError: recognition has already started
     if ((error && error.name === 'InvalidStateError') || String(error).includes('already started')) {
       recognitionRunning = true;
       setStatus('Mikrofon zaten dinliyor...');
@@ -205,7 +214,7 @@ if (SpeechRecognition) {
 
     setStatus(tips[event.error] || `Mikrofon hatası: ${event.error}`);
 
-    if (event.error === 'network' || event.error === 'service-not-allowed') {
+    if (event.error !== 'aborted' && event.error !== 'not-allowed') {
       try {
         await startRecordingFallback();
       } catch (error) {

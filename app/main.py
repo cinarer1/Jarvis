@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+from typing import Any
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, UploadFile
@@ -63,6 +64,16 @@ def _model() -> str:
     return os.getenv("OPENAI_MODEL", "gpt-4o-mini").strip() or "gpt-4o-mini"
 
 
+def _coerce_text(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, list):
+        return " ".join(str(item) for item in value)
+    return str(value)
+
+
 def local_fallback_reply(message: str) -> str:
     lower = message.lower()
     if "saat" in lower:
@@ -100,7 +111,8 @@ def chat(body: ChatRequest) -> ChatResponse:
                     {"role": "user", "content": body.message},
                 ],
             )
-            text_reply = (response.output_text or "").strip() or "Şu an yanıt üretemedim, tekrar dener misin?"
+            text_reply = _coerce_text(getattr(response, "output_text", "")).strip()
+            text_reply = text_reply or "Şu an yanıt üretemedim, tekrar dener misin?"
             return ChatResponse(reply=text_reply, source=f"openai.responses:{model}")
         except Exception as responses_error:
             try:
@@ -111,7 +123,8 @@ def chat(body: ChatRequest) -> ChatResponse:
                         {"role": "user", "content": body.message},
                     ],
                 )
-                content = completion.choices[0].message.content or "Şu an yanıt üretemedim, tekrar dener misin?"
+                content = _coerce_text(completion.choices[0].message.content).strip()
+                content = content or "Şu an yanıt üretemedim, tekrar dener misin?"
                 return ChatResponse(reply=content, source=f"openai.chat:{model}")
             except Exception as chat_error:
                 error_detail = f"responses={responses_error.__class__.__name__}, chat={chat_error.__class__.__name__}"
@@ -144,7 +157,7 @@ async def transcribe(audio: UploadFile = File(...)) -> TranscribeResponse:
             model="gpt-4o-mini-transcribe",
             file=(audio.filename or "mic.webm", file_bytes, audio.content_type or "audio/webm"),
         )
-        text = (getattr(transcript, "text", "") or "").strip()
+        text = _coerce_text(getattr(transcript, "text", "")).strip()
         if not text:
             return TranscribeResponse(text="", source="openai-transcribe", error="Boş transkript")
         return TranscribeResponse(text=text, source="openai-transcribe")

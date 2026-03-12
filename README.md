@@ -38,24 +38,27 @@ python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
 
 ## Sorun giderme
 
-### "recognition has already started" hatası
+### `304 Not Modified` logu
+
+- Bu bir hata değildir. Tarayıcı `style.css`/`app.js` dosyalarını cache’den kullandığını söyler.
+
+### `recognition has already started`
 
 - Bu sürümde mikrofon state yönetimi düzeltildi.
-- Hızlıca art arda tıklasan bile aynı anda ikinci `recognition.start()` çağrısı yapılmaz.
+- İkinci `recognition.start()` çağrısı engellenir.
 
-### API 500 hatası
+### `server-error` / `TypeError`
 
-- Backend, yakalanmamış hataları `server-error` veya `openai-error` olarak JSON döndürür.
-- Yine 500 alırsan büyük olasılıkla dependency eksiktir: `pip install -r requirements.txt`
-- Özellikle `/api/transcribe` için `python-multipart` zorunludur.
+- API yanıt metni tip güvenli şekilde normalize edilir.
+- OpenAI bazı modellerde içerik tipini liste dönebilir; bu sürüm bunu metne çevirir.
 
-### Mikrofon çalışmıyor
+### Mikrofon dinlemiyor
 
 - Chrome/Edge kullan.
-- Tarayıcı mikrofon izni açık olsun.
-- IP ile bağlanıyorsan HTTPS gerekebilir.
-- SpeechRecognition başarısızsa uygulama otomatik kayıt moduna geçer.
+- Tarayıcı mikrofon iznini aç.
+- Uygulama önce mikrofon iznini ister, sonra dinlemeyi başlatır.
+- SpeechRecognition başarısızsa kayıt moduna geçer.
 
 ### Hata alınca sesli yanıt kesiliyor
 
-- Bu sürümde hata mesajları da sesli okunur (sesli yanıt açıksa).
+- Hata mesajları da sesli okunur (sesli yanıt açıksa).
