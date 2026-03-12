@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="tr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Jarvis TR</title>
+    <link rel="stylesheet" href="/static/style.css" />
+  </head>
+  <body>
+    <main class="container">
+      <header>
+        <h1>Jarvis TR</h1>
+        <p>Türkçe sesli + yazılı kişisel asistan</p>
+      </header>
+
+      <section id="chat" class="chat"></section>
+
+      <form id="chatForm" class="controls">
+        <input
+          id="messageInput"
+          type="text"
+          placeholder="Mesajını yaz veya mikrofonu kullan..."
+          autocomplete="off"
+          required
+        />
+        <button type="submit">Gönder</button>
+      </form>
+
+      <div class="buttons">
+        <button id="micBtn" type="button">🎙️ Konuş</button>
+        <button id="speakToggleBtn" type="button">🔊 Sesli Yanıt: Açık</button>
+      </div>
+
+      <small id="status">Hazır.</small>
+    </main>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>
