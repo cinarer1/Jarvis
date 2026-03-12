@@ -2,7 +2,7 @@ import os
 from pathlib import Path
 
 from dotenv import load_dotenv
-from fastapi import FastAPI
+from fastapi import FastAPI, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -13,7 +13,6 @@ BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
 ROOT_DIR = BASE_DIR.parent
 
-# VS Code/terminal fark etmeksizin .env dosyasını otomatik yükle
 load_dotenv(ROOT_DIR / ".env")
 
 app = FastAPI(title="Jarvis TR")
@@ -44,10 +43,24 @@ class ConfigResponse(BaseModel):
     model: str
 
 
+class TranscribeResponse(BaseModel):
+    text: str
+    source: str
+    error: str | None = None
+
+
 SYSTEM_PROMPT = (
     "Sen Türkçe konuşan, yardımsever, kısa ve anlaşılır bir asistanın. "
     "Kullanıcıya pratik adımlarla yardımcı ol."
 )
+
+
+def _api_key() -> str:
+    return os.getenv("OPENAI_API_KEY", "").strip()
+
+
+def _model() -> str:
+    return os.getenv("OPENAI_MODEL", "gpt-4o-mini").strip() or "gpt-4o-mini"
 
 
 def local_fallback_reply(message: str) -> str:
@@ -56,11 +69,7 @@ def local_fallback_reply(message: str) -> str:
         return "Şu an tam saati göremiyorum ama istersen bilgisayarında saat komutu çalıştırmanı söyleyebilirim."
     if "hava" in lower:
         return "Canlı hava verisine bağlı değilim, ama bulunduğun şehri yazarsan nasıl kontrol edeceğini anlatırım."
-    return (
-        "Şu an yerel modda çalışıyorum (OpenAI anahtarı görünmüyor). "
-        "Yine de mesajını aldım ✅ "
-        f"{message}"
-    )
+    return f"Şu an yerel moddayım. Mesajını aldım ✅ {message}"
 
 
 @app.get("/")
@@ -70,22 +79,18 @@ def index() -> FileResponse:
 
 @app.get("/api/config", response_model=ConfigResponse)
 def config() -> ConfigResponse:
-    model = os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
-    has_key = bool(os.getenv("OPENAI_API_KEY"))
-    return ConfigResponse(has_openai_key=has_key, model=model)
+    return ConfigResponse(has_openai_key=bool(_api_key()), model=_model())
 
 
 @app.post("/api/chat", response_model=ChatResponse)
 def chat(body: ChatRequest) -> ChatResponse:
-    api_key = os.getenv("OPENAI_API_KEY")
-    model = os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
+    api_key = _api_key()
+    model = _model()
 
     if not api_key:
         return ChatResponse(reply=local_fallback_reply(body.message), source="local-fallback")
 
     client = OpenAI(api_key=api_key)
-
-    # Önce Responses API dene, model/hesap yetkisine göre başarısız olursa Chat Completions'a düş.
     try:
         response = client.responses.create(
             model=model,
@@ -94,7 +99,7 @@ def chat(body: ChatRequest) -> ChatResponse:
                 {"role": "user", "content": body.message},
             ],
         )
-        text_reply = response.output_text.strip() or "Şu an yanıt üretemedim, tekrar dener misin?"
+        text_reply = (response.output_text or "").strip() or "Şu an yanıt üretemedim, tekrar dener misin?"
         return ChatResponse(reply=text_reply, source=f"openai.responses:{model}")
     except Exception as responses_error:
         try:
@@ -110,7 +115,31 @@ def chat(body: ChatRequest) -> ChatResponse:
         except Exception as chat_error:
             error_detail = f"responses={responses_error.__class__.__name__}, chat={chat_error.__class__.__name__}"
             return ChatResponse(
-                reply="OpenAI bağlantısında sorun oldu. API anahtarını, modeli ve internet bağlantını kontrol et.",
+                reply="OpenAI bağlantısında sorun oldu. Model veya API anahtarını kontrol et.",
                 source="openai-error",
                 error=error_detail,
             )
+
+
+@app.post("/api/transcribe", response_model=TranscribeResponse)
+async def transcribe(audio: UploadFile = File(...)) -> TranscribeResponse:
+    api_key = _api_key()
+    if not api_key:
+        return TranscribeResponse(
+            text="",
+            source="transcribe-local",
+            error="OPENAI_API_KEY bulunamadı",
+        )
+
+    try:
+        client = OpenAI(api_key=api_key)
+        transcript = client.audio.transcriptions.create(
+            model="gpt-4o-mini-transcribe",
+            file=(audio.filename or "mic.webm", await audio.read(), audio.content_type or "audio/webm"),
+        )
+        text = (getattr(transcript, "text", "") or "").strip()
+        if not text:
+            return TranscribeResponse(text="", source="openai-transcribe", error="Boş transkript")
+        return TranscribeResponse(text=text, source="openai-transcribe")
+    except Exception as exc:
+        return TranscribeResponse(text="", source="openai-transcribe-error", error=exc.__class__.__name__)
