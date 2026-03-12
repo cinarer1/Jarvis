@@ -9,8 +9,6 @@ let speakEnabled = true;
 let isRecording = false;
 let mediaRecorder = null;
 let chunks = [];
-let recognition = null;
-let recognitionRunning = false;
 
 function addMessage(text, who) {
   const div = document.createElement('div');
@@ -31,14 +29,6 @@ function speak(text) {
   utterance.rate = 1;
   window.speechSynthesis.cancel();
   window.speechSynthesis.speak(utterance);
-}
-
-async function ensureMicPermission() {
-  if (!navigator.mediaDevices?.getUserMedia) {
-    throw new Error('Tarayıcı mikrofon izin API desteklemiyor.');
-  }
-  const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-  stream.getTracks().forEach((track) => track.stop());
 }
 
 async function loadConfig() {
@@ -68,16 +58,9 @@ async function sendMessage(message) {
       body: JSON.stringify({ message }),
     });
 
-    let data = null;
-    try {
-      data = await res.json();
-    } catch {
-      data = null;
-    }
-
+    const data = await res.json();
     if (!res.ok) {
-      const errMsg = data?.error || `API hata: ${res.status}`;
-      throw new Error(errMsg);
+      throw new Error(data?.error || `API hata: ${res.status}`);
     }
 
     addMessage(data.reply, 'bot');
@@ -106,19 +89,25 @@ speakToggleBtn.addEventListener('click', () => {
 });
 
 async function transcribeBlob(blob) {
-  setStatus('Ses metne çevriliyor...');
   const formData = new FormData();
   formData.append('audio', blob, 'speech.webm');
 
-  const res = await fetch('/api/transcribe', { method: 'POST', body: formData });
+  const res = await fetch('/api/transcribe', {
+    method: 'POST',
+    body: formData,
+  });
   const data = await res.json();
 
-  if (!res.ok || data.error) throw new Error(data.error || `Transkripsiyon hatası: ${res.status}`);
-  if (!data.text) throw new Error('Ses metne çevrilemedi.');
+  if (!res.ok || data.error) {
+    throw new Error(data?.error || `Transkripsiyon hatası: ${res.status}`);
+  }
+  if (!data.text) {
+    throw new Error('Ses metne çevrilemedi.');
+  }
   return data.text;
 }
 
-async function startRecordingFallback() {
+async function startRecording() {
   if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
     throw new Error('Tarayıcı mikrofon kaydı desteklemiyor. Chrome/Edge deneyin.');
   }
@@ -134,6 +123,7 @@ async function startRecordingFallback() {
   mediaRecorder.onstop = async () => {
     stream.getTracks().forEach((track) => track.stop());
     try {
+      setStatus('Ses metne çevriliyor...');
       const blob = new Blob(chunks, { type: 'audio/webm' });
       const text = await transcribeBlob(blob);
       input.value = text;
@@ -156,86 +146,6 @@ async function startRecordingFallback() {
   setStatus('Kayıt başladı... Bitince tekrar butona bas.');
 }
 
-async function safeStartRecognition() {
-  if (!recognition) return false;
-  if (recognitionRunning) {
-    setStatus('Mikrofon zaten dinliyor...');
-    return true;
-  }
-
-  await ensureMicPermission();
-
-  try {
-    recognition.start();
-    recognitionRunning = true;
-    setStatus('Dinleniyor...');
-    return true;
-  } catch (error) {
-    if ((error && error.name === 'InvalidStateError') || String(error).includes('already started')) {
-      recognitionRunning = true;
-      setStatus('Mikrofon zaten dinliyor...');
-      return true;
-    }
-    throw error;
-  }
-}
-
-const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-if (SpeechRecognition) {
-  recognition = new SpeechRecognition();
-  recognition.lang = 'tr-TR';
-  recognition.interimResults = false;
-  recognition.maxAlternatives = 1;
-
-  recognition.addEventListener('start', () => {
-    recognitionRunning = true;
-    micBtn.textContent = '🎙️ Dinliyor...';
-  });
-
-  recognition.addEventListener('result', async (event) => {
-    const transcript = event.results[0][0].transcript;
-    input.value = transcript;
-    setStatus(`Duyuldu: ${transcript}`);
-    await sendMessage(transcript);
-  });
-
-  recognition.addEventListener('error', async (event) => {
-    recognitionRunning = false;
-    micBtn.textContent = '🎙️ Konuş';
-
-    const tips = {
-      'not-allowed': 'Mikrofon izni reddedildi. Tarayıcı ayarlarından izin ver.',
-      'service-not-allowed': 'Tarayıcı ses servisine izin vermiyor. Kayıt moduna geçiliyor...',
-      'no-speech': 'Ses algılanmadı, tekrar dene.',
-      'audio-capture': 'Mikrofon cihazı bulunamadı.',
-      'network': 'SpeechRecognition ağ hatası verdi. Kayıt moduna geçiliyor...',
-      'aborted': 'Dinleme durduruldu.',
-    };
-
-    setStatus(tips[event.error] || `Mikrofon hatası: ${event.error}`);
-
-    if (event.error !== 'aborted' && event.error !== 'not-allowed') {
-      try {
-        await startRecordingFallback();
-      } catch (error) {
-        const msg = `Kayıt modu açılamadı: ${error.message}`;
-        addMessage(msg, 'bot');
-        speak(msg);
-      }
-    }
-  });
-
-  recognition.addEventListener('end', () => {
-    recognitionRunning = false;
-    if (!isRecording) {
-      micBtn.textContent = '🎙️ Konuş';
-    }
-    if (!isRecording && !statusEl.textContent.startsWith('Hazır.')) {
-      setStatus('Hazır.');
-    }
-  });
-}
-
 micBtn.addEventListener('click', async () => {
   try {
     if (isRecording && mediaRecorder) {
@@ -243,12 +153,7 @@ micBtn.addEventListener('click', async () => {
       return;
     }
 
-    if (recognition) {
-      const started = await safeStartRecognition();
-      if (started) return;
-    }
-
-    await startRecordingFallback();
+    await startRecording();
   } catch (error) {
     const msg = `Mikrofon açılamadı: ${error.message}`;
     addMessage(msg, 'bot');
@@ -258,6 +163,7 @@ micBtn.addEventListener('click', async () => {
 });
 
 addMessage('Merhaba! Ben Jarvis TR. Türkçe yazabilir veya konuşabilirsin.', 'bot');
+addMessage('Mikrofon için kayıt modu kullanılıyor: Başlatmak için 🎙️ Konuş butonuna bas, bitince tekrar bas.', 'bot');
 if (location.protocol !== 'https:' && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
   addMessage('Not: Mikrofon çoğu tarayıcıda HTTPS ister. Telefondan bağlanıyorsan HTTPS gerekebilir.', 'bot');
 }

@@ -1,14 +1,6 @@
 # Jarvis TR — Sesli + Yazılı Yapay Zeka Asistanı
 
-Bu proje, **Türkçe konuşabilen**, **sesten metne giriş** alabilen, **sesli yanıt verebilen** ve aynı zamanda yazışma arayüzü olan bir "Jarvis tarzı" asistan başlangıcıdır.
-
-## Özellikler
-
-- Türkçe metin tabanlı sohbet arayüzü
-- Tarayıcı mikrofonu ile sesli komut
-- SpeechRecognition çalışmazsa kayıt + OpenAI transcribe fallback
-- Asistan cevabını Türkçe sesli okuma (SpeechSynthesis)
-- FastAPI backend (`/api/config`, `/api/chat`, `/api/transcribe`)
+Bu proje, Türkçe yazışma + sesli giriş/çıkış destekleyen bir asistan örneğidir.
 
 ## Kurulum
 
@@ -18,13 +10,14 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-## OpenAI anahtarı
+## .env
 
-Proje köküne `.env` dosyası oluştur:
+Proje köküne `.env` oluştur:
 
 ```env
 OPENAI_API_KEY=sk-...
 OPENAI_MODEL=gpt-4o-mini
+OPENAI_TRANSCRIBE_MODEL=whisper-1
 ```
 
 ## Çalıştırma
@@ -33,32 +26,16 @@ OPENAI_MODEL=gpt-4o-mini
 python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
-- Bilgisayar: `http://localhost:8000`
-- Telefon (aynı ağ): `http://BILGISAYAR_IP:8000`
+Aç: `http://localhost:8000`
 
-## Sorun giderme
+## Önemli değişiklikler (stabilite için)
 
-### `304 Not Modified` logu
+- Mikrofon akışı artık **tamamen kayıt modu (MediaRecorder)** ile çalışır.
+  - `🎙️ Konuş` → kayıt başlar
+  - `⏹️ Durdur` → kayıt biter, sunucu transcribe eder
+- Böylece `SpeechRecognition` kaynaklı `recognition has already started` hatası tamamen devre dışı bırakıldı.
+- Chat tarafında OpenAI cevabı tip güvenli normalize edilir; `TypeError` durumlarında kontrollü hata döner.
 
-- Bu bir hata değildir. Tarayıcı `style.css`/`app.js` dosyalarını cache’den kullandığını söyler.
+## Log notu
 
-### `recognition has already started`
-
-- Bu sürümde mikrofon state yönetimi düzeltildi.
-- İkinci `recognition.start()` çağrısı engellenir.
-
-### `server-error` / `TypeError`
-
-- API yanıt metni tip güvenli şekilde normalize edilir.
-- OpenAI bazı modellerde içerik tipini liste dönebilir; bu sürüm bunu metne çevirir.
-
-### Mikrofon dinlemiyor
-
-- Chrome/Edge kullan.
-- Tarayıcı mikrofon iznini aç.
-- Uygulama önce mikrofon iznini ister, sonra dinlemeyi başlatır.
-- SpeechRecognition başarısızsa kayıt moduna geçer.
-
-### Hata alınca sesli yanıt kesiliyor
-
-- Hata mesajları da sesli okunur (sesli yanıt açıksa).
+`304 Not Modified` bir hata değildir, tarayıcı cache bilgisidir.

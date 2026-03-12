@@ -60,8 +60,12 @@ def _api_key() -> str:
     return os.getenv("OPENAI_API_KEY", "").strip()
 
 
-def _model() -> str:
+def _chat_model() -> str:
     return os.getenv("OPENAI_MODEL", "gpt-4o-mini").strip() or "gpt-4o-mini"
+
+
+def _transcribe_model() -> str:
+    return os.getenv("OPENAI_TRANSCRIBE_MODEL", "whisper-1").strip() or "whisper-1"
 
 
 def _coerce_text(value: Any) -> str:
@@ -75,11 +79,6 @@ def _coerce_text(value: Any) -> str:
 
 
 def local_fallback_reply(message: str) -> str:
-    lower = message.lower()
-    if "saat" in lower:
-        return "Şu an tam saati göremiyorum ama istersen bilgisayarında saat komutu çalıştırmanı söyleyebilirim."
-    if "hava" in lower:
-        return "Canlı hava verisine bağlı değilim, ama bulunduğun şehri yazarsan nasıl kontrol edeceğini anlatırım."
     return f"Şu an yerel moddayım. Mesajını aldım ✅ {message}"
 
 
@@ -90,31 +89,26 @@ def index() -> FileResponse:
 
 @app.get("/api/config", response_model=ConfigResponse)
 def config() -> ConfigResponse:
-    return ConfigResponse(has_openai_key=bool(_api_key()), model=_model())
+    return ConfigResponse(has_openai_key=bool(_api_key()), model=_chat_model())
 
 
 @app.post("/api/chat", response_model=ChatResponse)
 def chat(body: ChatRequest) -> ChatResponse:
     try:
         api_key = _api_key()
-        model = _model()
-
         if not api_key:
             return ChatResponse(reply=local_fallback_reply(body.message), source="local-fallback")
 
         client = OpenAI(api_key=api_key)
-        try:
-            response = client.responses.create(
-                model=model,
-                input=[
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": body.message},
-                ],
-            )
-            text_reply = _coerce_text(getattr(response, "output_text", "")).strip()
-            text_reply = text_reply or "Şu an yanıt üretemedim, tekrar dener misin?"
-            return ChatResponse(reply=text_reply, source=f"openai.responses:{model}")
-        except Exception as responses_error:
+
+        models_to_try = []
+        primary = _chat_model()
+        for candidate in (primary, "gpt-4o-mini", "gpt-3.5-turbo"):
+            if candidate and candidate not in models_to_try:
+                models_to_try.append(candidate)
+
+        last_error = "unknown"
+        for model in models_to_try:
             try:
                 completion = client.chat.completions.create(
                     model=model,
@@ -124,15 +118,17 @@ def chat(body: ChatRequest) -> ChatResponse:
                     ],
                 )
                 content = _coerce_text(completion.choices[0].message.content).strip()
-                content = content or "Şu an yanıt üretemedim, tekrar dener misin?"
+                if not content:
+                    content = "Şu an yanıt üretemedim, tekrar dener misin?"
                 return ChatResponse(reply=content, source=f"openai.chat:{model}")
-            except Exception as chat_error:
-                error_detail = f"responses={responses_error.__class__.__name__}, chat={chat_error.__class__.__name__}"
-                return ChatResponse(
-                    reply="OpenAI bağlantısında sorun oldu. Model veya API anahtarını kontrol et.",
-                    source="openai-error",
-                    error=error_detail,
-                )
+            except Exception as exc:
+                last_error = f"{model}:{exc.__class__.__name__}"
+
+        return ChatResponse(
+            reply="OpenAI bağlantısında sorun oldu. Model veya API anahtarını kontrol et.",
+            source="openai-error",
+            error=last_error,
+        )
     except Exception as uncaught:
         return ChatResponse(
             reply="Sunucuda beklenmedik bir hata oluştu. Lütfen tekrar dene.",
@@ -154,7 +150,7 @@ async def transcribe(audio: UploadFile = File(...)) -> TranscribeResponse:
 
         client = OpenAI(api_key=api_key)
         transcript = client.audio.transcriptions.create(
-            model="gpt-4o-mini-transcribe",
+            model=_transcribe_model(),
             file=(audio.filename or "mic.webm", file_bytes, audio.content_type or "audio/webm"),
         )
         text = _coerce_text(getattr(transcript, "text", "")).strip()
