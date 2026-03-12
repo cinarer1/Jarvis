@@ -24,15 +24,35 @@ python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
 
 Aç: `http://localhost:8000`
 
-## Bu sürümde düzeltilenler
+## Önemli: `proxies` TypeError düzeltmesi
 
-- Mikrofon butonu önce `SpeechRecognition` dener, başarısız olursa otomatik `MediaRecorder` kayıt moduna geçer.
-- `recognition has already started` yarış durumuna karşı `recognitionActive` kontrolü eklendi.
-- `/api/chat` dönüşleri tip güvenli normalize edilir (`TypeError` riskini düşürür).
-- `/api/transcribe` hataları artık daha açıklayıcı döner (`ExceptionClass: message`).
-- OpenAI chat için model fallback sırası: `.env` modeli → `gpt-4o-mini` → `gpt-3.5-turbo`.
+Eğer şu hata geliyorsa:
 
-## Notlar
+`TypeError: Client.__init__() got an unexpected keyword argument 'proxies'`
 
-- `304 Not Modified` hata değildir (cache logudur).
-- Mikrofon için tarayıcı izinleri açık olmalı.
+bu, `openai` ile `httpx` sürüm uyumsuzluğudur. Bu repo artık `httpx==0.27.2` pinli geliyor.
+
+Mutlaka temiz kurulum yap:
+
+```bash
+# proje kökünde
+rm -rf .venv
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+Windows PowerShell:
+
+```powershell
+Remove-Item -Recurse -Force .venv
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+```
+
+## Mikrofon notu
+
+- Mikrofon butonu önce SpeechRecognition dener.
+- O başarısız olursa otomatik kayıt (MediaRecorder) moduna geçer.
+- Tarayıcı izinleri kapalıysa mikrofon çalışmaz.

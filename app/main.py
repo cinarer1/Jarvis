@@ -88,6 +88,21 @@ def _safe_error(exc: Exception) -> str:
     return f"{cls}: {msg}"
 
 
+def _openai_client() -> tuple[OpenAI | None, str | None]:
+    try:
+        return OpenAI(api_key=_api_key()), None
+    except TypeError as exc:
+        text = str(exc)
+        if "unexpected keyword argument 'proxies'" in text:
+            return None, (
+                "OpenAI/httpx sürüm uyumsuzluğu var: `proxies` hatası. "
+                "Sanal ortamı yeniden kurup `pip install -r requirements.txt` çalıştır."
+            )
+        return None, _safe_error(exc)
+    except Exception as exc:
+        return None, _safe_error(exc)
+
+
 def local_fallback_reply(message: str) -> str:
     return f"Şu an yerel moddayım. Mesajını aldım ✅ {message}"
 
@@ -113,7 +128,13 @@ def chat(body: ChatRequest) -> ChatResponse:
         if not api_key:
             return ChatResponse(reply=local_fallback_reply(body.message), source="local-fallback")
 
-        client = OpenAI(api_key=api_key)
+        client, client_err = _openai_client()
+        if not client:
+            return ChatResponse(
+                reply="OpenAI istemcisi başlatılamadı. Paket sürümlerini güncelleyelim.",
+                source="openai-client-error",
+                error=client_err,
+            )
 
         models_to_try = []
         primary = _chat_model()
@@ -154,15 +175,17 @@ def chat(body: ChatRequest) -> ChatResponse:
 @app.post("/api/transcribe", response_model=TranscribeResponse)
 async def transcribe(audio: UploadFile = File(...)) -> TranscribeResponse:
     try:
-        api_key = _api_key()
-        if not api_key:
+        if not _api_key():
             return TranscribeResponse(text="", source="transcribe-local", error="OPENAI_API_KEY bulunamadı")
 
         file_bytes = await audio.read()
         if not file_bytes:
             return TranscribeResponse(text="", source="openai-transcribe", error="Boş ses dosyası")
 
-        client = OpenAI(api_key=api_key)
+        client, client_err = _openai_client()
+        if not client:
+            return TranscribeResponse(text="", source="openai-client-error", error=client_err)
+
         transcript = client.audio.transcriptions.create(
             model=_transcribe_model(),
             file=(audio.filename or "mic.webm", file_bytes, audio.content_type or "audio/webm"),
